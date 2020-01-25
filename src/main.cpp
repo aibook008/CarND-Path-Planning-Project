@@ -113,6 +113,42 @@ int main() {
           //define the reference velocity
           if(ref_vel<target_speed)
           {ref_vel+=2;}
+          //deal with sensor fusion data
+          int index=0;
+          double front_object_s=9999;
+          double front_object_v=9999;
+          bool front =false;
+          for (index=0;index<sensor_fusion.size();index++)
+          {
+         
+            //get the fused objects info
+            double vx=sensor_fusion[index][3];
+            double vy=sensor_fusion[index][4];
+            double checked_velocity=std::sqrt(vx*vx+vy*vy);
+            double object_s=sensor_fusion[index][5];
+            double object_d=sensor_fusion[index][6];
+            if( object_d < ( 2 + 4 * lane + 2 ) && object_d > ( 2 + 4 * lane - 2 ))
+            {
+              if ((object_s-car_s)>0 && (object_s-car_s)<30 )
+              {
+                front=true;
+                front_object_s=object_s;
+                front_object_v=checked_velocity;
+                std::cout<<"front observed"<<std::endl;
+                std::cout<<"front_object_v"<<front_object_v<<std::endl;
+                std::cout<<"front observed"<<std::endl;
+                break;
+              }
+            }       
+
+          }
+          if (front)
+          {
+            ref_vel=std::min(ref_vel,front_object_v);
+             std::cout<<"ref_vel"<<ref_vel<<std::endl;
+          }
+          //temp solution for avoiding collision
+
           //first try for the const heading angle
           //get previous points
           //the way to generate a circular path
