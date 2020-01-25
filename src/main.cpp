@@ -5,6 +5,7 @@
 #include <vector>
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
+#include "spline.h"
 #include "helpers.h"
 #include "json.hpp"
 
@@ -12,6 +13,8 @@
 using nlohmann::json;
 using std::string;
 using std::vector;
+ //define some tuning variables
+  
 
 int main() {
   uWS::Hub h;
@@ -27,6 +30,10 @@ int main() {
   string map_file_ = "../data/highway_map.csv";
   // The max s value before wrapping around the track back to 0
   double max_s = 6945.554;
+  int lane=1;
+  double ref_vel=0;
+  double target_speed=48;
+
 
   std::ifstream in_map_(map_file_.c_str(), std::ifstream::in);
 
@@ -50,7 +57,7 @@ int main() {
     map_waypoints_dy.push_back(d_y);
   }
 
-  h.onMessage([&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
+  h.onMessage([&target_speed,&ref_vel,&lane,&map_waypoints_x,&map_waypoints_y,&map_waypoints_s,
                &map_waypoints_dx,&map_waypoints_dy]
               (uWS::WebSocket<uWS::SERVER> ws, char *data, size_t length,
                uWS::OpCode opCode) {
@@ -97,7 +104,122 @@ int main() {
            * TODO: define a path made up of (x,y) points that the car will visit
            *   sequentially every .02 seconds
            */
+          // double dist_inc=0.5;
+          // for (int i=0;i<50;i++)
+          // {
+          //   next_x_vals.push_back(car_x+dist_inc*i*cos(deg2rad(car_yaw)));
+          //   next_y_vals.push_back(car_y+(dist_inc*i)*sin(deg2rad(car_yaw)));
+          // }
+          //define the reference velocity
+          if(ref_vel<target_speed)
+          {ref_vel+=2;}
+          //first try for the const heading angle
+          //get previous points
+          //the way to generate a circular path
+          double pos_x;
+          double pos_y;
+          double angle;
+          int path_size_previous=previous_path_x.size();
+          for(int i=0;i<path_size_previous;i++)
+          {
+            next_x_vals.push_back(previous_path_x[i]);
+            next_y_vals.push_back(previous_path_y[i]);
+            
+          }
+          if(path_size_previous==0)
+          {
+            pos_x=car_x;
+            pos_y=car_y;
+            angle=deg2rad(car_yaw);
+          }
+          else
+          {
+            pos_x=previous_path_x[path_size_previous-1];
+            pos_y=previous_path_y[path_size_previous-1];
+            double pos_x2=previous_path_x[path_size_previous-2];
+            double pos_y2=previous_path_y[path_size_previous-2];
+            angle=atan2(pos_y-pos_y2,pos_x-pos_x2);
+          }
+          //  double dist_inc=0.5;
+          // for (int i=0;i<50-path_size_previous;i++)
+          // {
+          //   next_x_vals.push_back(pos_x);
+          //   next_y_vals.push_back(pos_y);
+          //   pos_x+=(dist_inc)*cos(angle+(i)*(pi()/100));
+          //   pos_y+=(dist_inc)*sin(angle+(i)*(pi()/100));
+          // }
 
+          //realize to stay in a constant lane
+          //first thing is to select the referrence point as it will be selected as the local coordination original point
+          vector<double> ptsx;
+          vector<double> ptsy;
+          double refer_x;
+          double refer_y;
+          double refer_yaw;
+          if(path_size_previous<2)
+          {
+            refer_x=car_x;
+            refer_y=car_y;
+            refer_yaw=car_yaw;
+
+          }
+          else
+          {
+            refer_x = previous_path_x[path_size_previous - 1];
+            refer_y=previous_path_y[path_size_previous-1];
+            double ref_x_prev = previous_path_x[path_size_previous - 2];
+            double ref_y_prev = previous_path_y[path_size_previous - 2];
+           // refer_y=previous_path_y[path_size_previous-1];
+            refer_yaw=atan2(refer_y - ref_y_prev, refer_x - ref_x_prev);
+            
+          }
+          ptsx.push_back(refer_x);
+          ptsy.push_back(refer_y);
+          //transform to have a spline in the local coordination
+          vector<double> next_wp0 = getXY(car_s + 30, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp1 = getXY(car_s + 60, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp2 = getXY(car_s + 90, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          ptsx.push_back(next_wp0[0]);
+          ptsx.push_back(next_wp1[0]);
+          ptsx.push_back(next_wp2[0]);
+          ptsy.push_back(next_wp0[1]);
+          ptsy.push_back(next_wp1[1]);
+          ptsy.push_back(next_wp2[1]);
+          for(int i=0;i<ptsx.size();i++)
+          {
+            //do the transition
+            double shifx = ptsx[i] - refer_x;
+            double shify = ptsy[i] - refer_y;
+
+            ptsx[i] = (shifx * cos(0 - refer_yaw) - shify * sin(0 - refer_yaw));
+            ptsy[i] = (shifx * sin(0 - refer_yaw) + shify * cos(0 - refer_yaw));
+          }
+
+          tk::spline s;
+          s.set_points(ptsx,ptsy);
+          double target_x=30;
+          double target_y=s(target_x);
+          double target_dis=sqrt(( target_x ) * ( target_x ) + ( target_y ) * ( target_y ));
+          double x_add_on=0;
+          for(int i=0;i<50-previous_path_x.size();i++)
+          {
+            double N=(target_dis/(0.02*ref_vel/2.24));
+            double x_point=x_add_on+(target_x)/N;
+            double y_point=s(x_point);
+            x_add_on=x_point; //value replaced for further iteration
+
+            // rotate back to normal after rotating it earlier
+            double x_ref = x_point;
+            double y_ref = y_point;
+            x_point = (x_ref * cos(refer_yaw) - y_ref * sin(refer_yaw));
+            y_point = (x_ref * sin(refer_yaw) + y_ref * cos(refer_yaw));
+
+            x_point += refer_x;
+            y_point += refer_y;
+
+            next_x_vals.push_back(x_point);
+            next_y_vals.push_back(y_point);
+          }
 
           msgJson["next_x"] = next_x_vals;
           msgJson["next_y"] = next_y_vals;
