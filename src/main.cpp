@@ -111,42 +111,90 @@ int main() {
           //   next_y_vals.push_back(car_y+(dist_inc*i)*sin(deg2rad(car_yaw)));
           // }
           //define the reference velocity
-          if(ref_vel<target_speed)
-          {ref_vel+=2;}
+       
           //deal with sensor fusion data
           int index=0;
           double front_object_s=9999;
           double front_object_v=9999;
           bool front =false;
-          for (index=0;index<sensor_fusion.size();index++)
+          bool left_front=false;
+          double left_front_object_s=9999;
+          double left_front_object_v=9999;
+          bool right_front=false;
+          double right_front_object_s=9999;
+          double right_front_object_v=9999;
+          for (index = 0; index < sensor_fusion.size(); index++)
           {
-         
-            //get the fused objects info
-            double vx=sensor_fusion[index][3];
-            double vy=sensor_fusion[index][4];
-            double checked_velocity=std::sqrt(vx*vx+vy*vy);
-            double object_s=sensor_fusion[index][5];
-            double object_d=sensor_fusion[index][6];
-            if( object_d < ( 2 + 4 * lane + 2 ) && object_d > ( 2 + 4 * lane - 2 ))
-            {
-              if ((object_s-car_s)>0 && (object_s-car_s)<30 )
-              {
-                front=true;
-                front_object_s=object_s;
-                front_object_v=checked_velocity;
-                std::cout<<"front observed"<<std::endl;
-                std::cout<<"front_object_v"<<front_object_v<<std::endl;
-                std::cout<<"front observed"<<std::endl;
-                break;
-              }
-            }       
 
+            //get the fused objects info
+            double vx = sensor_fusion[index][3];
+            double vy = sensor_fusion[index][4];
+            double checked_velocity = std::sqrt(vx * vx + vy * vy);
+            double object_s = sensor_fusion[index][5];
+            double object_d = sensor_fusion[index][6];
+            //check if left lane
+            if (lane > 0 && object_d < (2 + 4 * (lane - 1) + 2) && object_d > (2 + 4 * (lane - 1) - 2))
+            {
+              if ((object_s - car_s) > 0 && (object_s - car_s) < 50)
+              {
+                left_front = true;
+                left_front_object_s = object_s;
+                left_front_object_v = checked_velocity;
+              }
+            }
+            //check if right lane
+            if (lane < 2 && object_d < (2 + 4 * (lane + 1) + 2) && object_d > (2 + 4 * (lane + 1) - 2))
+            {
+              if ((object_s - car_s) > 0 && (object_s - car_s) < 50)
+              {
+
+                right_front = true;
+                right_front_object_s = object_s;
+                right_front_object_v = checked_velocity;
+              }
+            }
+            if (object_d < (2 + 4 * lane + 2) && object_d > (2 + 4 * lane - 2))
+            {
+              if ((object_s - car_s) > 0 && (object_s - car_s) < 20)
+              {
+                front = true;
+                front_object_s = object_s;
+                front_object_v = checked_velocity;
+                std::cout << "front observed" << std::endl;
+                // // std::cout<<"front_object_v"<<front_object_v<<std::endl;
+                // // std::cout<<"front observed"<<std::endl;
+                // // if (lane>0)
+                // {lane=0;}
+                // break;
+              }
+            }
           }
           if (front)
           {
-            ref_vel=std::min(ref_vel,front_object_v);
-             std::cout<<"ref_vel"<<ref_vel<<std::endl;
+            double front_ref_velocity;
+            if (!left_front&&lane!=0)
+            {
+              lane -= 1;
+            }
+            else if (!right_front&&lane!=2)
+            {
+              lane += 1;
+            }
+
+              if (ref_vel > front_object_v)
+              {
+                ref_vel -= 0.5;
+              }
+            }
+          
+          else
+          {
+            if (ref_vel < target_speed)
+            {
+              ref_vel += 0.5;
+            }
           }
+
           //temp solution for avoiding collision
 
           //first try for the const heading angle
@@ -155,8 +203,9 @@ int main() {
           double pos_x;
           double pos_y;
           double angle;
-          int path_size_previous=previous_path_x.size();
-          for(int i=0;i<path_size_previous;i++)
+          int path_size_previous = previous_path_x.size();
+          std::cout<<path_size_previous<<std::endl;
+          for (int i = 0; i < path_size_previous; i++)
           {
             next_x_vals.push_back(previous_path_x[i]);
             next_y_vals.push_back(previous_path_y[i]);
@@ -192,11 +241,11 @@ int main() {
           double refer_x;
           double refer_y;
           double refer_yaw;
-          if(path_size_previous<2)
+          if(path_size_previous>2)
           {
             refer_x=car_x;
             refer_y=car_y;
-            refer_yaw=car_yaw;
+            refer_yaw=deg2rad(car_yaw);
 
           }
           else
@@ -205,16 +254,23 @@ int main() {
             refer_y=previous_path_y[path_size_previous-1];
             double ref_x_prev = previous_path_x[path_size_previous - 2];
             double ref_y_prev = previous_path_y[path_size_previous - 2];
+             
            // refer_y=previous_path_y[path_size_previous-1];
             refer_yaw=atan2(refer_y - ref_y_prev, refer_x - ref_x_prev);
+             ptsx.push_back ( ref_x_prev );
+                        ptsy.push_back ( ref_y_prev );
+             ptsx.push_back(refer_x);
+          ptsy.push_back(refer_y);
             
           }
-          ptsx.push_back(refer_x);
-          ptsy.push_back(refer_y);
+         
           //transform to have a spline in the local coordination
-          vector<double> next_wp0 = getXY(car_s + 30, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          vector<double> next_wp1 = getXY(car_s + 60, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
-          vector<double> next_wp2 = getXY(car_s + 90, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          // vector<double> next_wp0 = getXY(car_s + 30, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          // vector<double> next_wp1 = getXY(car_s + 50, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          // vector<double> next_wp2 = getXY(car_s + 90, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp0 = getXY(end_path_s + 30, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp1 = getXY(end_path_s + 50, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+          vector<double> next_wp2 = getXY(end_path_s + 90, (2 + 4 * lane), map_waypoints_s, map_waypoints_x, map_waypoints_y);
           ptsx.push_back(next_wp0[0]);
           ptsx.push_back(next_wp1[0]);
           ptsx.push_back(next_wp2[0]);
